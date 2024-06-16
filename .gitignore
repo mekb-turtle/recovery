@@ -1,0 +1,5 @@
+root/
+*.tmp
+.idea/
+.vs/
+.vscode/

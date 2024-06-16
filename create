@@ -1,46 +1,98 @@
 #!/bin/bash
-$(return 0 >/dev/null 2>/dev/null)
-if [[ "$?" -eq "0" ]] && [[ -n "$BASH_SOURCE" ]]; then bash -- "$BASH_SOURCE"
-else
+true && return 1 2>/dev/null # exit if sourced
 IFS=$'\n'
 set -o errexit -o nounset -o pipefail || exit 1
 function print() {
-	printf "%s\n" "${1-}"
+	printf "\x1b[38;5;14m::\x1b[0m %s\n" "$@"
+	return 0
+}
+function debug() {
+	printf "\x1b[38;5;13m::\x1b[0m %s\n" "$@"
+	return 0
+}
+function error() {
+	printf "\x1b[38;5;9m::\x1b[0m %s\n" "$@" >&2
+	return 1
 }
 function check_installed() {
-	if ! command -v $1 &>/dev/null; then
-		print "$1 could not be found"
-		return 1
-	fi
+	for i in "$@"; do
+		if ! command -v "$i" &>/dev/null; then
+			error "$i could not be found"
+		fi
+	done
 }
 function check_root() {
 	if [[ $EUID -ne 0 ]]; then
-		print "This script must be run as root"
-		return 1
+		error "This script must be run as root"
 	fi
 }
 function confirm() {
-	print "$1 [Y/n]"
+	local REPLY
+	local args
+	local last
+	args=("$@")
+	last="$(("${#args[@]}" - 1))"
+	args["$last"]="${args["$last"]} [Y/n]"
+	print "${args[@]}"
 	read -n 1 -r
-	print
-	if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
-		return 1
+	printf "\n"
+	if [[ ! "$REPLY" =~ ^[Yy]?$ ]]; then
+		error "Aborted"
 	fi
+	return 0
 }
-function create_empty() {
-	for i in "$@"; do
-		if [[ -d "$i" ]]; then
-			rmdir -v "$i" || return 1
-		fi
-		mkdir -pv "$i"
-	done
+function create_symlink() {
+	local target
+	local file
+	target="$1"
+	file="$2"
+
+	if [[ -L "$file" ]]; then
+		unlink -- "$file"
+	fi
+	if [[ -e "$file" ]]; then
+		error "$file: file already exists, can't create symlink"
+	fi
+	ln -s -- "$target" "$file"
+	debug "Symlink created: $file -> $target"
 }
 check_installed mksquashfs
+check_root
+NL=$'\n'
 
 ROOT="$PWD/root"
-ISO="$PWD/iso"
-ISO_DATA="$PWD/isodata"
-NL=$'\n'
-confirm "The installation directory is $ROOT.${NL}ISO will be mounted in $ISO.${NL}ISO squashfs data will be extracted to $ISO_DATA.${NL}Continue?"
-create_empty "$ROOT" "$ISO" "$ISO_DATA"
-fi
+INSTALL_LANG=en_US.UTF-8
+INSTALL_LANG_ENC=UTF-8
+INSTALL_TZ=Australia/Melbourne
+INSTALL_KEYMAP=us
+INSTALL_FONT=ter-v22n
+INSTALL_USER=user
+INSTALL_USER_PASSWORD=user
+INSTALL_ROOT_PASSWORD=root
+confirm "The installation directory is $ROOT." \
+	"Install language is '$INSTALL_LANG'." \
+	"Install timezone is '$INSTALL_TZ'." \
+	"Install keymap is '$INSTALL_KEYMAP'." \
+	"Install user is '$INSTALL_USER'." \
+	"Install font is '$INSTALL_FONT'." \
+	"Continue?"
+
+debug "Creating directory $ROOT"
+mkdir -p "$ROOT"
+debug "Installing packages"
+basestrap -c "$ROOT" base base-devel dinit dbus-dinit seatd-dinit nano neovim git curl wget sudo linux linux-firmware intel-ucode amd-ucode mandoc man-pages efibootmgr grub dracut os-prober networkmanager-dinit less terminus-font
+debug "Configuring system"
+echo "$INSTALL_LANG $INSTALL_LANG_ENC" >"$ROOT/etc/locale.gen"
+echo "LANG=$INSTALL_LANG" >"$ROOT/etc/locale.conf"
+echo "KEYMAP=$INSTALL_KEYMAP" >"$ROOT/etc/vconsole.conf"
+echo "FONT=$INSTALL_FONT" >"$ROOT/etc/vconsole.conf"
+create_symlink /usr/share/zoneinfo/"$INSTALL_TZ" "$ROOT/etc/localtime"
+chroot "$ROOT" locale-gen
+chroot "$ROOT" passwd root <<<"$INSTALL_ROOT_PASSWORD$NL$INSTALL_ROOT_PASSWORD"
+chroot "$ROOT" bash -c 'id -u -- "$1" || useradd --create-home -- "$1"' "$INSTALL_USER" "$INSTALL_USER"
+chroot "$ROOT" usermod --append --groups wheel --shell /bin/bash "$INSTALL_USER"
+chroot "$ROOT" passwd "$INSTALL_USER" <<<"$INSTALL_USER_PASSWORD$NL$INSTALL_USER_PASSWORD"
+chroot "$ROOT" bash -c 'echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel'
+create_symlink ../NetworkManager "$ROOT"/etc/dinit.d/boot.d/NetworkManager
+create_symlink ../seatd "$ROOT"/etc/dinit.d/boot.d/seatd
+create_symlink ../dbus "$ROOT"/etc/dinit.d/boot.d/dbus
