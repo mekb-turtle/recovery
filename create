@@ -1,20 +1,46 @@
 #!/bin/bash
+$(return 0 >/dev/null 2>/dev/null)
+if [[ "$?" -eq "0" ]] && [[ -n "$BASH_SOURCE" ]]; then bash -- "$BASH_SOURCE"
+else
+IFS=$'\n'
+set -o errexit -o nounset -o pipefail || exit 1
+function print() {
+	printf "%s\n" "${1-}"
+}
 function check_installed() {
 	if ! command -v $1 &>/dev/null; then
-		echo "$1 could not be found"
-		exit 1
+		print "$1 could not be found"
+		return 1
+	fi
+}
+function check_root() {
+	if [[ $EUID -ne 0 ]]; then
+		print "This script must be run as root"
+		return 1
 	fi
 }
 function confirm() {
-	printf "%s [Y/n]\n" "$1"
+	print "$1 [Y/n]"
 	read -n 1 -r
-	echo
+	print
 	if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
-		exit 1
+		return 1
 	fi
+}
+function create_empty() {
+	for i in "$@"; do
+		if [[ -d "$i" ]]; then
+			rmdir -v "$i" || return 1
+		fi
+		mkdir -pv "$i"
+	done
 }
 check_installed mksquashfs
 
 ROOT="$PWD/root"
-confirm "The installation directory is $ROOT. Continue?"
-mkdir root
+ISO="$PWD/iso"
+ISO_DATA="$PWD/isodata"
+NL=$'\n'
+confirm "The installation directory is $ROOT.${NL}ISO will be mounted in $ISO.${NL}ISO squashfs data will be extracted to $ISO_DATA.${NL}Continue?"
+create_empty "$ROOT" "$ISO" "$ISO_DATA"
+fi
