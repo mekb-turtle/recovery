@@ -1,4 +1,17 @@
 #!/bin/bash
+function configure() {
+	ROOT="$PWD/root"
+	ISO="$PWD/out.iso"
+	INSTALL_LANG=en_AU.UTF-8
+	INSTALL_LANG_ENC=UTF-8
+	INSTALL_KEYMAP=us
+	INSTALL_TZ=Australia/Melbourne
+	INSTALL_FONT=ter-v22n
+	INSTALL_USER=user
+	INSTALL_USER_PASSWORD=user
+	INSTALL_ROOT_PASSWORD=root
+}
+
 true && return 1 2>/dev/null # exit if sourced
 IFS=$'\n'
 set -o errexit -o nounset -o pipefail || exit 1
@@ -14,6 +27,9 @@ function error() {
 	printf "\x1b[38;5;9m::\x1b[0m %s\n" "$@" >&2
 	return 1
 }
+function print_raw() {
+	printf "%s\n" "$@"
+}
 function check_installed() {
 	for i in "$@"; do
 		if ! command -v "$i" &>/dev/null; then
@@ -28,11 +44,12 @@ function check_root() {
 }
 function confirm() {
 	local REPLY
-	local args
+	local -a args
 	local last
 	args=("$@")
 	last="$(("${#args[@]}" - 1))"
 	args["$last"]="${args["$last"]} [Y/n]"
+
 	print "${args[@]}"
 	read -n 1 -r
 	printf "\n"
@@ -51,48 +68,151 @@ function create_symlink() {
 		unlink -- "$file"
 	fi
 	if [[ -e "$file" ]]; then
-		error "$file: file already exists, can't create symlink"
+		error "$file: file already exists as another type"
 	fi
 	ln -s -- "$target" "$file"
 	debug "Symlink created: $file -> $target"
 }
-check_installed mksquashfs
-check_root
-NL=$'\n'
+function create_dir() {
+	local dir
+	dir="$1"
 
-ROOT="$PWD/root"
-INSTALL_LANG=en_US.UTF-8
-INSTALL_LANG_ENC=UTF-8
-INSTALL_TZ=Australia/Melbourne
-INSTALL_KEYMAP=us
-INSTALL_FONT=ter-v22n
-INSTALL_USER=user
-INSTALL_USER_PASSWORD=user
-INSTALL_ROOT_PASSWORD=root
+	if [[ -d "$dir" ]]; then
+		debug "Directory already exists: $dir"
+		return 0
+	fi
+	if [[ -e "$dir" ]]; then
+		error "$dir: file already exists as another type"
+	fi
+	mkdir -- "$dir"
+	debug "Directory created: $dir"
+}
+function copy_file() {
+	local src
+	local dest
+	src="$1"
+	dest="$2"
+	if [[ -e "$dest" ]]; then
+		unlink -- "$dest"
+	fi
+	cp -- "$src" "$dest"
+	debug "File copied: $src -> $dest"
+}
+function move_file() {
+	local src
+	local dest
+	src="$1"
+	dest="$2"
+	if [[ -e "$dest" ]]; then
+		unlink -- "$dest"
+	fi
+	mv -- "$src" "$dest"
+	debug "File moved: $src -> $dest"
+}
+function delete_file() {
+	local file
+	file="$1"
+	if [[ -e "$file" ]]; then
+		unlink -- "$file"
+	fi
+	debug "File deleted: $file"
+}
+function ensure_exists() {
+	local file
+	file="$1"
+	if [[ ! -e "$file" ]]; then
+		error "$file: file doesn't exist"
+	fi
+}
+function ensure_does_not_exist() {
+	local file
+	file="$1"
+	if [[ -e "$file" ]]; then
+		error "$file: file already exists"
+	fi
+}
+function install_packages() {
+	local root
+	local -A packages
+	root="$1"
+	shift
+	if [[ -z "$root" || ! -d "$root" ]]; then
+		error "Invalid root directory"
+	fi
+	packages=()
+	for i in "$@"; do
+		if [[ -z "$i" ]]; then
+			continue
+		fi
+		packages["$i"]=1
+	done
+	IFS=$'\n'
+	if [[ -d "$root"/etc ]]; then
+		while IFS= read -r line; do
+			unset "packages[$line]"
+		done < <(pacman --root "$root" -Qq - <<<"${!packages[*]}" 2>/dev/null)
+	fi
+	if [[ ${#packages[@]} -eq 0 ]]; then
+		debug "Packages are already installed"
+		return 0
+	fi
+	debug "Installing ${#packages[@]} packages..."
+	basestrap -c -- "$root" - <<<"${!packages[*]}"
+}
+check_installed mksquashfs chroot grub-install mkdir ln cp mv unlink basestrap pacman printf grub-mkrescue awk
+check_root
+ensure_exists grub.cfg
+ensure_exists update-dracut
+
+configure
+
 confirm "The installation directory is $ROOT." \
-	"Install language is '$INSTALL_LANG'." \
-	"Install timezone is '$INSTALL_TZ'." \
-	"Install keymap is '$INSTALL_KEYMAP'." \
-	"Install user is '$INSTALL_USER'." \
-	"Install font is '$INSTALL_FONT'." \
+	"The ISO will be saved to $ISO." \
+	"Language is '$INSTALL_LANG'." \
+	"Language encoding is '$INSTALL_LANG_ENC'." \
+	"Keymap is '$INSTALL_KEYMAP'." \
+	"Timezone is '$INSTALL_TZ'." \
+	"User is '$INSTALL_USER'." \
+	"Font is '$INSTALL_FONT'." \
 	"Continue?"
 
 debug "Creating directory $ROOT"
-mkdir -p "$ROOT"
-debug "Installing packages"
-basestrap -c "$ROOT" base base-devel dinit dbus-dinit seatd-dinit nano neovim git curl wget sudo linux linux-firmware intel-ucode amd-ucode mandoc man-pages efibootmgr grub dracut os-prober networkmanager-dinit less terminus-font
+create_dir "$ROOT"
+debug "Installing base packages"
+install_packages "$ROOT" base base-devel dinit dbus-dinit seatd-dinit
+debug "Installing additional packages"
+install_packages "$ROOT" nano neovim git curl wget sudo linux linux-firmware intel-ucode amd-ucode mandoc man-pages efibootmgr grub dracut os-prober networkmanager-dinit less terminus-font baobab gdm-dinit gnome-session gnome-backgrounds gnome-calculator gnome-calendar gnome-characters gnome-clocks gnome-color-manager gnome-console gnome-control-center gnome-font-viewer gnome-keyring gnome-menus gnome-settings-daemon gnome-shell gnome-shell-extensions gnome-software gnome-system-monitor gnome-text-editor gnome-user-docs gnome-user-share gvfs loupe nautilus simple-scan snapshot sushi xdg-desktop-portal-gnome xdg-user-dirs-gtk firefox okular gparted squashfs-tools device-mapper
 debug "Configuring system"
-echo "$INSTALL_LANG $INSTALL_LANG_ENC" >"$ROOT/etc/locale.gen"
-echo "LANG=$INSTALL_LANG" >"$ROOT/etc/locale.conf"
-echo "KEYMAP=$INSTALL_KEYMAP" >"$ROOT/etc/vconsole.conf"
-echo "FONT=$INSTALL_FONT" >"$ROOT/etc/vconsole.conf"
+print_raw "$INSTALL_LANG $INSTALL_LANG_ENC" >"$ROOT/etc/locale.gen"
+print_raw "LANG=$INSTALL_LANG" >"$ROOT/etc/locale.conf"
+print_raw "KEYMAP=$INSTALL_KEYMAP" "FONT=$INSTALL_FONT" >"$ROOT/etc/vconsole.conf"
+print_raw "%wheel ALL=(ALL) ALL" >"$ROOT"/etc/sudoers.d/wheel
+print_raw 'add_dracutmodules+=" dmsquash-live "' >"$ROOT"/etc/dracut.conf.d/02-squashfs.conf
 create_symlink /usr/share/zoneinfo/"$INSTALL_TZ" "$ROOT/etc/localtime"
-chroot "$ROOT" locale-gen
-chroot "$ROOT" passwd root <<<"$INSTALL_ROOT_PASSWORD$NL$INSTALL_ROOT_PASSWORD"
-chroot "$ROOT" bash -c 'id -u -- "$1" || useradd --create-home -- "$1"' "$INSTALL_USER" "$INSTALL_USER"
-chroot "$ROOT" usermod --append --groups wheel --shell /bin/bash "$INSTALL_USER"
-chroot "$ROOT" passwd "$INSTALL_USER" <<<"$INSTALL_USER_PASSWORD$NL$INSTALL_USER_PASSWORD"
-chroot "$ROOT" bash -c 'echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel'
+# shellcheck disable=SC2016
+artix-chroot "$ROOT" bash -c '(id -u -- "$1" || useradd --create-home -- "$1") && locale-gen &&
+usermod --append --groups wheel --shell /bin/bash -- "$1"' bash "$INSTALL_USER"
+chroot "$ROOT" passwd root <<<"$INSTALL_ROOT_PASSWORD"$'\n'"$INSTALL_ROOT_PASSWORD"
+chroot "$ROOT" passwd "$INSTALL_USER" <<<"$INSTALL_USER_PASSWORD"$'\n'"$INSTALL_USER_PASSWORD"
 create_symlink ../NetworkManager "$ROOT"/etc/dinit.d/boot.d/NetworkManager
 create_symlink ../seatd "$ROOT"/etc/dinit.d/boot.d/seatd
 create_symlink ../dbus "$ROOT"/etc/dinit.d/boot.d/dbus
+create_symlink ../gdm "$ROOT"/etc/dinit.d/boot.d/gdm
+
+debug "Creating initramfs image with dracut"
+#artix-chroot "$ROOT" bash - < update-dracut
+
+debug "Creating squashfs image"
+SQUASHFS="root.squashfs"
+SQUASHFS_PATH="$ROOT/boot/$SQUASHFS"
+#mksquashfs "$ROOT" "$SQUASHFS_PATH" -one-file-system -noappend -no-recovery -e "$SQUASHFS_PATH"
+
+debug "Generating GRUB configuration"
+create_dir "$ROOT"/boot/boot # not a typo, GRUB expects the boot directory to be /boot/grub, not /grub
+create_dir "$ROOT"/boot/boot/grub
+copy_file grub.cfg "$ROOT"/boot/boot/grub/grub.cfg
+awk -v SQ="$SQUASHFS" '{gsub(/SQUASHFS/, SQ)}1' "$ROOT"/boot/boot/grub/grub.cfg >"$ROOT"/boot/boot/grub/grub.cfg.tmp
+move_file "$ROOT"/boot/boot/grub/grub.cfg.tmp "$ROOT"/boot/boot/grub/grub.cfg
+
+debug "Creating ISO"
+grub-mkrescue -o "$ISO" "$ROOT/boot"
