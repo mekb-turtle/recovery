@@ -1,7 +1,8 @@
 #!/bin/bash
 function configure() {
-	ROOT="$PWD/root"
-	ISO="$PWD/out.iso"
+	VOLID="LINUX_RECOVERY_IMAGE"
+	ROOT="root"
+	ISO="out.iso"
 	INSTALL_LANG=en_AU.UTF-8
 	INSTALL_LANG_ENC=UTF-8
 	INSTALL_KEYMAP=us
@@ -13,6 +14,7 @@ function configure() {
 }
 
 true && return 1 2>/dev/null # exit if sourced
+cd -- "$PWD" || exit "$?"
 IFS=$'\n'
 set -o errexit -o nounset -o pipefail || exit 1
 function print() {
@@ -76,7 +78,6 @@ function create_symlink() {
 function create_dir() {
 	local dir
 	dir="$1"
-
 	if [[ -d "$dir" ]]; then
 		debug "Directory already exists: $dir"
 		return 0
@@ -114,8 +115,8 @@ function delete_file() {
 	file="$1"
 	if [[ -e "$file" ]]; then
 		unlink -- "$file"
+		debug "File deleted: $file"
 	fi
-	debug "File deleted: $file"
 }
 function ensure_exists() {
 	local file
@@ -147,7 +148,7 @@ function install_packages() {
 		packages["$i"]=1
 	done
 	IFS=$'\n'
-	if [[ -d "$root"/etc ]]; then
+	if [[ -d "$root"/var/lib/pacman ]]; then
 		while IFS= read -r line; do
 			unset "packages[$line]"
 		done < <(pacman --root "$root" -Qq - <<<"${!packages[*]}" 2>/dev/null)
@@ -159,60 +160,76 @@ function install_packages() {
 	debug "Installing ${#packages[@]} packages..."
 	basestrap -c -- "$root" - <<<"${!packages[*]}"
 }
-check_installed mksquashfs chroot grub-install mkdir ln cp mv unlink basestrap pacman printf grub-mkrescue awk
+check_installed mksquashfs chroot grub-install mkdir ln cp mv unlink basestrap pacman printf grub-mkrescue awk mkfs.ext4 tar
 check_root
 ensure_exists grub.cfg
 ensure_exists update-dracut
 
 configure
 
-confirm "The installation directory is $ROOT." \
-	"The ISO will be saved to $ISO." \
-	"Language is '$INSTALL_LANG'." \
-	"Language encoding is '$INSTALL_LANG_ENC'." \
-	"Keymap is '$INSTALL_KEYMAP'." \
-	"Timezone is '$INSTALL_TZ'." \
-	"User is '$INSTALL_USER'." \
-	"Font is '$INSTALL_FONT'." \
+BOOT="$ROOT/boot"
+ROOTFS="rootfs.img"
+confirm "Script settings: " \
+	"  Root directory is at '$ROOT'." \
+	"  Root filesystem image is at '$ROOTFS'." \
+	"  Output ISO file will be saved to '$ISO'." \
+	"  ISO label is '$VOLID'." \
+	"Recovery environment options:" \
+	"  Language is '$INSTALL_LANG'." \
+	"  Language encoding is '$INSTALL_LANG_ENC'." \
+	"  Keymap is '$INSTALL_KEYMAP'." \
+	"  Timezone is '$INSTALL_TZ'." \
+	"  User is '$INSTALL_USER'." \
+	"  Font is '$INSTALL_FONT'." \
 	"Continue?"
 
-debug "Creating directory $ROOT"
-create_dir "$ROOT"
-debug "Installing base packages"
-install_packages "$ROOT" base base-devel dinit dbus-dinit seatd-dinit
-debug "Installing additional packages"
-install_packages "$ROOT" nano neovim git curl wget sudo linux linux-firmware intel-ucode amd-ucode mandoc man-pages efibootmgr grub dracut os-prober networkmanager-dinit less terminus-font baobab gdm-dinit gnome-session gnome-backgrounds gnome-calculator gnome-calendar gnome-characters gnome-clocks gnome-color-manager gnome-console gnome-control-center gnome-font-viewer gnome-keyring gnome-menus gnome-settings-daemon gnome-shell gnome-shell-extensions gnome-software gnome-system-monitor gnome-text-editor gnome-user-docs gnome-user-share gvfs loupe nautilus simple-scan snapshot sushi xdg-desktop-portal-gnome xdg-user-dirs-gtk firefox okular gparted squashfs-tools device-mapper
-debug "Configuring system"
-print_raw "$INSTALL_LANG $INSTALL_LANG_ENC" >"$ROOT/etc/locale.gen"
-print_raw "LANG=$INSTALL_LANG" >"$ROOT/etc/locale.conf"
-print_raw "KEYMAP=$INSTALL_KEYMAP" "FONT=$INSTALL_FONT" >"$ROOT/etc/vconsole.conf"
-print_raw "%wheel ALL=(ALL) ALL" >"$ROOT"/etc/sudoers.d/wheel
-print_raw 'add_dracutmodules+=" dmsquash-live "' >"$ROOT"/etc/dracut.conf.d/02-squashfs.conf
-create_symlink /usr/share/zoneinfo/"$INSTALL_TZ" "$ROOT/etc/localtime"
-# shellcheck disable=SC2016
-artix-chroot "$ROOT" bash -c '(id -u -- "$1" || useradd --create-home -- "$1") && locale-gen &&
+if false; then
+	PACKAGES=(base base-devel dinit dbus-dinit seatd-dinit nano neovim git curl wget sudo linux linux-firmware intel-ucode amd-ucode mandoc man-pages efibootmgr grub dracut os-prober networkmanager-dinit less terminus-font baobab gdm-dinit gnome-session gnome-backgrounds gnome-calculator gnome-calendar gnome-characters gnome-clocks gnome-color-manager gnome-console gnome-control-center gnome-font-viewer gnome-keyring gnome-menus gnome-settings-daemon gnome-shell gnome-shell-extensions gnome-software gnome-system-monitor gnome-text-editor gnome-user-docs gnome-user-share gvfs loupe nautilus simple-scan snapshot sushi xdg-desktop-portal-gnome xdg-user-dirs-gtk firefox okular squashfs-tools device-mapper gparted dosfstools jfsutils f2fs-tools btrfs-progs exfatprogs ntfs-3g reiserfsprogs udftools xfsprogs nilfs-utils polkit gpart mtools xorg-xhost)
+	# TODO: gparted optional dependencies
+	create_dir "$ROOT"
+	print "Installing packages"
+	install_packages "$ROOT" "${PACKAGES[@]}"
+	print "Configuring system"
+	print_raw "$INSTALL_LANG $INSTALL_LANG_ENC" >"$ROOT/etc/locale.gen"
+	print_raw "LANG=$INSTALL_LANG" >"$ROOT/etc/locale.conf"
+	print_raw "KEYMAP=$INSTALL_KEYMAP" "FONT=$INSTALL_FONT" >"$ROOT/etc/vconsole.conf"
+	print_raw "%wheel ALL=(ALL) ALL" >"$ROOT"/etc/sudoers.d/wheel
+	print_raw 'add_dracutmodules+=" dmsquash-live "' 'install_items+=" /usr/bin/lsblk /usr/bin/lsmod "' >"$ROOT"/etc/dracut.conf.d/02-squashfs.conf
+	create_symlink /usr/share/zoneinfo/"$INSTALL_TZ" "$ROOT/etc/localtime"
+	# shellcheck disable=SC2016
+	artix-chroot "$ROOT" bash -c '(id -u -- "$1" || useradd --create-home -- "$1") && locale-gen &&
 usermod --append --groups wheel --shell /bin/bash -- "$1"' bash "$INSTALL_USER"
-chroot "$ROOT" passwd root <<<"$INSTALL_ROOT_PASSWORD"$'\n'"$INSTALL_ROOT_PASSWORD"
-chroot "$ROOT" passwd "$INSTALL_USER" <<<"$INSTALL_USER_PASSWORD"$'\n'"$INSTALL_USER_PASSWORD"
-create_symlink ../NetworkManager "$ROOT"/etc/dinit.d/boot.d/NetworkManager
-create_symlink ../seatd "$ROOT"/etc/dinit.d/boot.d/seatd
-create_symlink ../dbus "$ROOT"/etc/dinit.d/boot.d/dbus
-create_symlink ../gdm "$ROOT"/etc/dinit.d/boot.d/gdm
+	chroot "$ROOT" passwd root <<<"$INSTALL_ROOT_PASSWORD"$'\n'"$INSTALL_ROOT_PASSWORD"
+	chroot "$ROOT" passwd "$INSTALL_USER" <<<"$INSTALL_USER_PASSWORD"$'\n'"$INSTALL_USER_PASSWORD"
+	create_symlink ../NetworkManager "$ROOT"/etc/dinit.d/boot.d/NetworkManager
+	create_symlink ../seatd "$ROOT"/etc/dinit.d/boot.d/seatd
+	create_symlink ../dbus "$ROOT"/etc/dinit.d/boot.d/dbus
+	create_symlink ../gdm "$ROOT"/etc/dinit.d/boot.d/gdm
+	create_symlink nvim "$ROOT"/usr/bin/vi
+	create_symlink nvim "$ROOT"/usr/bin/vim
 
-debug "Creating initramfs image with dracut"
-#artix-chroot "$ROOT" bash - < update-dracut
+	print "Creating initramfs image with dracut"
+	artix-chroot "$ROOT" bash - <update-dracut
 
-debug "Creating squashfs image"
-SQUASHFS="root.squashfs"
-SQUASHFS_PATH="$ROOT/boot/$SQUASHFS"
-#mksquashfs "$ROOT" "$SQUASHFS_PATH" -one-file-system -noappend -no-recovery -e "$SQUASHFS_PATH"
+	print "Creating ext4 filesystem image, this may take a while"
+	delete_file "$ROOTFS"
+	# creates a ext4 image of the root directory, excluding the boot directory
+	tar --directory "$ROOT" --exclude boot --verbose --one-file-system --create \
+		--xattrs --acls --numeric-owner --preserve-permissions --xattrs --xattrs-include=* --acls --atime-preserve . 2>/tmp/tar.log |
+		mkfs.ext4 -d - -- "$ROOTFS" 8G
+	resize2fs -M -- "$ROOTFS" # shrink the filesystem to the minimum size
 
-debug "Generating GRUB configuration"
-create_dir "$ROOT"/boot/boot # not a typo, GRUB expects the boot directory to be /boot/grub, not /grub
-create_dir "$ROOT"/boot/boot/grub
-copy_file grub.cfg "$ROOT"/boot/boot/grub/grub.cfg
-awk -v SQ="$SQUASHFS" '{gsub(/SQUASHFS/, SQ)}1' "$ROOT"/boot/boot/grub/grub.cfg >"$ROOT"/boot/boot/grub/grub.cfg.tmp
-move_file "$ROOT"/boot/boot/grub/grub.cfg.tmp "$ROOT"/boot/boot/grub/grub.cfg
+	print "Creating squashfs filesystem image, this may take a while"
+	SQUASHFS_DIR="$BOOT/LiveOS"
+	SQUASHFS_PATH="$SQUASHFS_DIR/squashfs.img"
+	create_dir "$SQUASHFS_DIR"
+	mksquashfs - "$SQUASHFS_PATH" -p '/ d 0755 0 0' -p '/LiveOS/ d 0755 0 0' -p '/LiveOS/rootfs.img f 0600 0 0 cat' -noappend -no-recovery <"$ROOTFS"
+fi
 
-debug "Creating ISO"
-grub-mkrescue -o "$ISO" "$ROOT/boot"
+print "Generating GRUB configuration"
+create_dir "$BOOT"/boot
+create_dir "$BOOT"/boot/grub
+awk -v VOLID="$VOLID" '{gsub(/\$VOLID/, VOLID);}1' grub.cfg >"$BOOT"/boot/grub/grub.cfg
+
+print "Creating ISO"
+grub-mkrescue -o "$ISO" "$BOOT" -- -volid "$VOLID"

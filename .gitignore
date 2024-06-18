@@ -1,4 +1,5 @@
 root/
+rootfs.img
 out.iso
 *.tmp
 .idea/
