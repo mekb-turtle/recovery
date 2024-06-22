@@ -4,7 +4,5 @@ KERNEL="$(pacman -Q linux | awk '{print $2}' | sed 's/\.\([a-z]\+\)/-\1/')"
 echo "Generating initramfs for kernel $KERNEL"
 echo "This may take a while..."
 echo "Generaing /boot/initramfs-linux.img..."
-# non-fallback image generally removes unneeded packages depending from the host system
-# but we don't want ties to the host system in a recovery image, so fallback image is the same as the normal one
-dracut /boot/initramfs-linux.img -f "$KERNEL"
-cp -- /boot/initramfs-linux.img /boot/initramfs-linux-fallback.img
+dracut -N /boot/initramfs-linux.img -f "$KERNEL"
+cp -fv -- /boot/initramfs-linux.img /boot/initramfs-linux-fallback.img
