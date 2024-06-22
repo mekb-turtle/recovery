@@ -65,10 +65,8 @@ function confirm() {
 	print "${args[@]}"
 	read -n 1 -r
 	printf "\n"
-	if [[ ! "$REPLY" =~ ^[Yy]?$ ]]; then
-		error "Aborted"
-	fi
-	return 0
+	if [[ "$REPLY" =~ ^[Yy]?$ ]]; then return 0; fi
+	error "Aborted"
 }
 function create_symlink() {
 	local target
@@ -210,7 +208,7 @@ function make() {
 		"Change these settings in the script if needed." \
 		"Continue?"
 
-	PACKAGES=(base base-devel dinit-base dinit dinit-rc dbus-dinit seatd-dinit nano neovim git curl wget sudo linux linux-firmware intel-ucode amd-ucode mandoc man-pages efibootmgr grub dracut os-prober networkmanager-dinit less terminus-font baobab gdm-dinit gnome-session gnome-backgrounds gnome-calculator gnome-characters gnome-clocks gnome-color-manager gnome-console gnome-control-center gnome-font-viewer gnome-keyring gnome-menus gnome-settings-daemon gnome-shell gnome-shell-extensions gnome-software gnome-system-monitor gnome-text-editor gnome-user-docs gnome-user-share gvfs loupe nautilus simple-scan snapshot sushi xdg-desktop-portal-gnome xdg-user-dirs-gtk firefox okular squashfs-tools device-mapper gparted dosfstools jfsutils f2fs-tools btrfs-progs exfatprogs ntfs-3g reiserfsprogs udftools xfsprogs nilfs-utils polkit gpart mtools xorg-xhost qemu-guest-agent-dinit usbutils)
+	PACKAGES=(base base-devel dinit-base dinit dinit-rc dbus-dinit seatd-dinit nano neovim git curl wget sudo linux linux-firmware intel-ucode amd-ucode mandoc man-pages efibootmgr grub dracut os-prober networkmanager-dinit less terminus-font baobab gdm-dinit gnome-session gnome-backgrounds gnome-calculator gnome-characters gnome-clocks gnome-color-manager gnome-console gnome-control-center gnome-font-viewer gnome-keyring gnome-menus gnome-settings-daemon gnome-shell gnome-shell-extensions gnome-software gnome-system-monitor gnome-text-editor gnome-user-docs gnome-user-share gvfs loupe nautilus simple-scan snapshot sushi xdg-desktop-portal-gnome xdg-user-dirs-gtk firefox okular squashfs-tools device-mapper gparted dosfstools jfsutils f2fs-tools btrfs-progs exfatprogs ntfs-3g reiserfsprogs udftools xfsprogs nilfs-utils polkit gpart mtools xorg-xhost qemu-guest-agent-dinit usbutils spice-vdagent-dinit)
 	# TODO: gparted optional dependencies
 	create_dir "$ROOT"
 	print "Installing packages"
@@ -220,7 +218,7 @@ function make() {
 	print_raw "LANG=$INSTALL_LANG" >"$ROOT/etc/locale.conf"
 	print_raw "KEYMAP=$INSTALL_KEYMAP" "FONT=$INSTALL_FONT" >"$ROOT/etc/vconsole.conf"
 	print_raw "%wheel ALL=(ALL) ALL" >"$ROOT"/etc/sudoers.d/wheel
-	print_raw '[daemon]' 'AutomaticLoginEnable=True' "AutomaticLogin=$USER" 'WaylandEnable=true' >"$ROOT"/etc/gdm/custom.conf
+	print_raw '[daemon]' 'AutomaticLoginEnable=True' "AutomaticLogin=$INSTALL_USER" 'WaylandEnable=true' >"$ROOT"/etc/gdm/custom.conf
 	create_symlink /usr/share/zoneinfo/"$INSTALL_TZ" "$ROOT/etc/localtime"
 	# shellcheck disable=SC2016
 	artix-chroot "$ROOT" bash -c '(id -u -- "$1" || useradd --create-home -- "$1") && locale-gen &&
@@ -232,6 +230,7 @@ usermod --append --groups wheel --shell /bin/bash -- "$1"' bash "$INSTALL_USER"
 	create_symlink ../dbus "$ROOT"/etc/dinit.d/boot.d/dbus
 	create_symlink ../gdm "$ROOT"/etc/dinit.d/boot.d/gdm
 	create_symlink ../qemu-ga "$ROOT"/etc/dinit.d/boot.d/qemu-ga
+	create_symlink ../spice-vdagentd "$ROOT"/etc/dinit.d/boot.d/spice-vdagentd
 	create_symlink nvim "$ROOT"/usr/bin/vi
 	create_symlink nvim "$ROOT"/usr/bin/vim
 
