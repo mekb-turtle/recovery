@@ -2,12 +2,14 @@
 function configure() {
 	VOLID="LINUX_RECOVERY_IMAGE"
 	ROOT="root"
+	ROOTFS="rootfs.img"
 	ISO="out.iso"
 	INSTALL_LANG=en_AU.UTF-8
 	INSTALL_LANG_ENC=UTF-8
 	INSTALL_KEYMAP=us
 	INSTALL_TZ=Australia/Melbourne
 	INSTALL_FONT=ter-v22n
+	INSTALL_HOSTNAME=linux
 	INSTALL_USER=user
 	INSTALL_USER_PASSWORD=user
 	INSTALL_ROOT_PASSWORD=root
@@ -39,8 +41,12 @@ function error() {
 	print_color 9 "$@" >&2
 	return 1
 }
-function print_raw() {
-	printf "%s\n" "$@"
+function write() {
+	local file
+	file="$1"
+	shift
+	debug "Writing to $file"
+	printf "%s\n" "$@" >"$file"
 }
 function check_installed() {
 	for i in "$@"; do
@@ -85,16 +91,17 @@ function create_symlink() {
 }
 function create_dir() {
 	local dir
-	dir="$1"
-	if [[ -d "$dir" ]]; then
-		debug "Directory already exists: $dir"
-		return 0
-	fi
-	if [[ -e "$dir" ]]; then
-		error "$dir: file already exists as another type"
-	fi
-	mkdir -- "$dir"
-	debug "Directory created: $dir"
+	for dir in "$@"; do
+		if [[ -d "$dir" ]]; then
+			debug "Directory already exists: $dir"
+			return 0
+		fi
+		if [[ -e "$dir" ]]; then
+			error "$dir: file already exists as another type"
+		fi
+		mkdir -- "$dir"
+		debug "Directory created: $dir"
+	done
 }
 function copy_file() {
 	local src
@@ -107,38 +114,39 @@ function copy_file() {
 	cp -- "$src" "$dest"
 	debug "File copied: $src -> $dest"
 }
-function move_file() {
+function copy_dir() {
 	local src
 	local dest
 	src="$1"
 	dest="$2"
-	if [[ -e "$dest" ]]; then
-		unlink -- "$dest"
-	fi
-	mv -- "$src" "$dest"
-	debug "File moved: $src -> $dest"
+	create_dir "$dest"
+	cp --recursive -- "$src" "$dest"
+	debug "Directory copied: $src -> $dest"
 }
 function delete_file() {
 	local file
-	file="$1"
-	if [[ -e "$file" ]]; then
-		unlink -- "$file"
-		debug "File deleted: $file"
-	fi
+	for file in "$@"; do
+		if [[ -e "$file" ]]; then
+			unlink -- "$file"
+			debug "File deleted: $file"
+		fi
+	done
 }
 function ensure_exists() {
 	local file
-	file="$1"
-	if [[ ! -e "$file" ]]; then
-		error "$file: file doesn't exist"
-	fi
+	for file in "$@"; do
+		if [[ ! -e "$file" ]]; then
+			error "$file: file doesn't exist"
+		fi
+	done
 }
 function ensure_does_not_exist() {
 	local file
-	file="$1"
-	if [[ -e "$file" ]]; then
-		error "$file: file already exists"
-	fi
+	for file in "$@"; do
+		if [[ -e "$file" ]]; then
+			error "$file: file already exists"
+		fi
+	done
 }
 function install_packages() {
 	local root
@@ -179,19 +187,76 @@ function install_packages() {
 	debug "Installing ${#packages[@]} packages..."
 	basestrap -c -- "$root" - <<<"${!packages[*]}"
 }
-check_installed mksquashfs chroot grub-install mkdir ln cp mv unlink basestrap pacman printf grub-mkrescue awk mkfs.ext4 tar
+function finalise_chroot() {
+	[[ -z "$1" ]] && return 1
+	print "Killing processes in chroot"
+	IFS=$'\n'
+	while IFS= read -r pid; do
+		debug "Killing process: $pid"
+		kill -- "$pid"
+	done < <(lsof -t -- "$1")
+	if [[ -n "$(lsof -t -- "$1")" ]]; then
+		error "Not all processes were killed in chroot, killing remaining processes..."
+		sleep 2
+		while IFS= read -r pid; do
+			debug "Force killing process: $pid"
+			kill -9 -- "$pid"
+		done < <(lsof -t -- "$1")
+		return 1
+	fi
+	print "Unmounting chroot if already mounted"
+	umount --verbose --recursive -- "$1/dev/shm" "$1/proc" "$1/sys" "$1/dev" "$1/run" "$1/tmp" "$1" || true
+}
+function initialise_chroot() {
+	[[ -z "$1" ]] && return 1
+	finalise_chroot "$1"
+	print "Initialising chroot"
+	mount --verbose --types proc /proc -- "$1/proc"
+	mount --verbose --rbind /sys -- "$1/sys"
+	mount --verbose --make-rslave -- "$1/sys"
+	mount --verbose --rbind /dev -- "$1/dev"
+	mount --verbose --make-rslave -- "$1/dev"
+	mount --verbose --types tmpfs tmpfs -- "$1/run"
+	mount --verbose --types tmpfs tmpfs -- "$1/tmp"
+	if [[ -L "/dev/shm" ]]; then
+		unlink -- "/dev/shm"
+		mkdir -- "/dev/shm"
+		mount --verbose --types tmpfs --options nosuid,nodev,noexec shm /dev/shm
+		chmod 1777 /dev/shm /run/shm
+	fi
+}
+function chr() {
+	local dir
+	dir="$1"
+	shift
+	env --ignore-environment chroot -- "$dir" "$@"
+}
+function register_service() {
+	local dir
+	dir="$1"
+	shift
+	for service in "$@"; do
+		create_symlink ../"$service" "$dir"/etc/dinit.d/boot.d/"$service"
+	done
+}
+check_installed mksquashfs chroot grub-install mkdir ln cp mv unlink basestrap pacman printf grub-mkrescue awk mkfs.ext4 tar mount umount resize2fs true false env lsof kill read
 check_root
 
 configure
+ROOT="$(realpath -- "$ROOT")"
+ISO="$(realpath -- "$ISO")"
 BOOT="$ROOT/boot"
-ROOTFS="rootfs.img"
+ROOTFS="$(realpath -- "$ROOTFS")"
 function clean() {
+	finalise_chroot "$ROOT"
 	delete_file "$ISO"
 	delete_file "$ROOTFS"
+	confirm "Recursively delete root directory at '$ROOT'?" && rm --one-file-system --recursive --verbose -- "$ROOT"
 }
 function make() {
-	ensure_exists grub.cfg
-	ensure_exists update-dracut
+	local -a PACKAGES
+
+	ensure_exists grub.cfg update-dracut
 
 	confirm "Script settings: " \
 		"  Root directory is at '$ROOT'." \
@@ -203,46 +268,67 @@ function make() {
 		"  Language encoding is '$INSTALL_LANG_ENC'." \
 		"  Keymap is '$INSTALL_KEYMAP'." \
 		"  Timezone is '$INSTALL_TZ'." \
+		"  Hostname is '$INSTALL_HOSTNAME'." \
 		"  User is '$INSTALL_USER'." \
 		"  Font is '$INSTALL_FONT'." \
 		"Change these settings in the script if needed." \
 		"Continue?"
 
-	PACKAGES=(base base-devel dinit-base dinit dinit-rc dbus-dinit seatd-dinit nano neovim git curl wget sudo linux linux-firmware intel-ucode amd-ucode mandoc man-pages efibootmgr grub dracut os-prober networkmanager-dinit less terminus-font baobab gdm-dinit gnome-session gnome-backgrounds gnome-calculator gnome-characters gnome-clocks gnome-color-manager gnome-console gnome-control-center gnome-font-viewer gnome-keyring gnome-menus gnome-settings-daemon gnome-shell gnome-shell-extensions gnome-software gnome-system-monitor gnome-text-editor gnome-user-docs gnome-user-share gvfs loupe nautilus simple-scan snapshot sushi xdg-desktop-portal-gnome xdg-user-dirs-gtk firefox okular squashfs-tools device-mapper gparted dosfstools jfsutils f2fs-tools btrfs-progs exfatprogs ntfs-3g reiserfsprogs udftools xfsprogs nilfs-utils polkit gpart mtools xorg-xhost qemu-guest-agent-dinit usbutils spice-vdagent-dinit)
-	# TODO: gparted optional dependencies
+	PACKAGES=(
+		base base-devel dinit-base dinit dinit-rc
+		dbus-dinit seatd-dinit qemu-guest-agent-dinit spice-vdagent-dinit networkmanager-dinit gdm-dinit bluez-dinit
+		nano neovim git curl wget sudo mandoc man-pages less
+		linux linux-firmware intel-ucode amd-ucode efibootmgr grub dracut terminus-font squashfs-tools device-mapper xorg-xhost usbutils
+		gnome-session gnome-backgrounds gnome-calculator gnome-characters gnome-clocks gnome-color-manager gnome-terminal gnome-control-center gnome-font-viewer gnome-keyring gnome-menus gnome-settings-daemon gnome-shell gnome-shell-extensions gnome-system-monitor gnome-text-editor gnome-user-docs gnome-user-share gnome-tweaks
+		gvfs loupe nautilus simple-scan snapshot sushi evince
+		xdg-desktop-portal-gnome xdg-user-dirs-gtk firefox baobab
+		gparted dosfstools jfsutils f2fs-tools btrfs-progs exfatprogs ntfs-3g reiserfsprogs udftools xfsprogs nilfs-utils polkit gpart mtools
+		testdisk extundelete smartmontools r-linux foremost btop rsync rclone rkhunter clamav clamtk chntpw gnome-disk-utility
+		ttf-ubuntu-font-family gnu-free-fonts ttf-fira-code ttf-fira-mono ttf-fira-sans ttf-roboto ttf-roboto-mono
+	)
 	create_dir "$ROOT"
 	print "Installing packages"
 	install_packages "$ROOT" "${PACKAGES[@]}"
+
+	initialise_chroot "$ROOT"
+
 	print "Configuring system"
-	print_raw "$INSTALL_LANG $INSTALL_LANG_ENC" >"$ROOT/etc/locale.gen"
-	print_raw "LANG=$INSTALL_LANG" >"$ROOT/etc/locale.conf"
-	print_raw "KEYMAP=$INSTALL_KEYMAP" "FONT=$INSTALL_FONT" >"$ROOT/etc/vconsole.conf"
-	print_raw "%wheel ALL=(ALL) ALL" >"$ROOT"/etc/sudoers.d/wheel
-	print_raw '[daemon]' 'AutomaticLoginEnable=True' "AutomaticLogin=$INSTALL_USER" 'WaylandEnable=true' >"$ROOT"/etc/gdm/custom.conf
+	write "$ROOT/etc/locale.gen" "$INSTALL_LANG $INSTALL_LANG_ENC"
+	write "$ROOT/etc/locale.conf" "LANG=$INSTALL_LANG"
+	write "$ROOT/etc/vconsole.conf" "KEYMAP=$INSTALL_KEYMAP" "FONT=$INSTALL_FONT"
 	create_symlink /usr/share/zoneinfo/"$INSTALL_TZ" "$ROOT/etc/localtime"
+	write "$ROOT/etc/hostname" "$HOSTNAME"
+	write "$ROOT/etc/hosts" '127.0.0.1 localhost' '0::1 localhost'
+	write "$ROOT/etc/sudoers.d/wheel" "%wheel ALL=(ALL) ALL"
+	write "$ROOT/etc/gdm/custom.conf" '[daemon]' 'AutomaticLoginEnable=True' "AutomaticLogin=$INSTALL_USER" 'WaylandEnable=true'
+	copy_file inputrc "$ROOT/etc/inputrc"
 	# shellcheck disable=SC2016
-	artix-chroot "$ROOT" bash -c '(id -u -- "$1" || useradd --create-home -- "$1") && locale-gen &&
-usermod --append --groups wheel --shell /bin/bash -- "$1"' bash "$INSTALL_USER"
-	chroot "$ROOT" passwd root <<<"$INSTALL_ROOT_PASSWORD"$'\n'"$INSTALL_ROOT_PASSWORD"
-	chroot "$ROOT" passwd "$INSTALL_USER" <<<"$INSTALL_USER_PASSWORD"$'\n'"$INSTALL_USER_PASSWORD"
-	create_symlink ../NetworkManager "$ROOT"/etc/dinit.d/boot.d/NetworkManager
-	create_symlink ../seatd "$ROOT"/etc/dinit.d/boot.d/seatd
-	create_symlink ../dbus "$ROOT"/etc/dinit.d/boot.d/dbus
-	create_symlink ../gdm "$ROOT"/etc/dinit.d/boot.d/gdm
-	create_symlink ../qemu-ga "$ROOT"/etc/dinit.d/boot.d/qemu-ga
-	create_symlink ../spice-vdagentd "$ROOT"/etc/dinit.d/boot.d/spice-vdagentd
+	chr "$ROOT" bash -c '(id -u -- "$1" || useradd --base-dir /home --create-home -- "$1")' bash "$INSTALL_USER"
+	chr "$ROOT" usermod --append --groups wheel --shell /bin/bash -- "$INSTALL_USER"
+	chr "$ROOT" locale-gen
+	chr "$ROOT" passwd root <<<"$INSTALL_ROOT_PASSWORD"$'\n'"$INSTALL_ROOT_PASSWORD"
+	chr "$ROOT" passwd "$INSTALL_USER" <<<"$INSTALL_USER_PASSWORD"$'\n'"$INSTALL_USER_PASSWORD"
+	register_service "$ROOT" NetworkManager bluetoothd seatd dbus gdm qemu-ga spice-vdagentd
 	create_symlink nvim "$ROOT"/usr/bin/vi
 	create_symlink nvim "$ROOT"/usr/bin/vim
+	create_dir "$ROOT/home/$INSTALL_USER/.config" "$ROOT/home/$INSTALL_USER/.config/dconf"
+	copy_dir firefox "$ROOT/home/$INSTALL_USER/.mozilla"
+	chr "$ROOT" chown -Rv -- "$INSTALL_USER" "/home/$INSTALL_USER/.mozilla"
+	chr "$ROOT" chown -Rv -- "$INSTALL_USER" "/home/$INSTALL_USER/.config"
+	chr "$ROOT" sudo -u "$INSTALL_USER" /bin/dbus-run-session /bin/dconf load / <settings.dconf
 
 	print "Creating initramfs image with dracut"
-	print_raw 'add_dracutmodules+=" dmsquash-live dm udev-rules kernel-modules kernel-modules-extra "' 'install_items+=" /usr/bin/lsblk /usr/bin/lsmod /usr/bin/lspci /usr/bin/lsusb "' >"$ROOT"/etc/dracut.conf.d/02-squashfs.conf
-	artix-chroot "$ROOT" bash - <update-dracut
+	write "$ROOT/etc/dracut.conf.d/02-squashfs.conf" 'add_dracutmodules+=" dmsquash-live dm udev-rules kernel-modules kernel-modules-extra "' 'install_items+=" /usr/bin/lsblk /usr/bin/lsmod /usr/bin/lspci /usr/bin/lsusb "'
+	chr "$ROOT" bash - <update-dracut
+
+	finalise_chroot "$ROOT"
+	delete_file "$ROOT"/etc/machine-id "$ROOT"/var/lib/dbus/machine-id
 
 	print "Creating ext4 filesystem image, this may take a while"
 	delete_file "$ROOTFS"
 	# creates a ext4 image of the root directory, excluding the boot directory
-	tar --directory "$ROOT" --exclude /boot --one-file-system --create \
-		--xattrs --acls --numeric-owner --preserve-permissions --xattrs --xattrs-include=* --acls --atime-preserve . |
+	tar --directory "$ROOT" --verbose --anchored --exclude ./boot --one-file-system --create \
+		--xattrs --acls --numeric-owner --preserve-permissions --xattrs --xattrs-include=* --acls --atime-preserve . 2>/tmp/tar.log |
 		mkfs.ext4 -d - -- "$ROOTFS" 10G
 	resize2fs -M -- "$ROOTFS" # shrink the filesystem to the minimum size
 
@@ -267,6 +353,8 @@ function main() {
 		print "Available commands:"
 		print "clean: Remove generated files"
 		print "make: Create the recovery ISO"
+		print "chroot: Mount the chroot"
+		print "unchroot: Unmount the chroot if already mounted"
 		return 0
 	fi
 	if [[ "$#" != "1" ]]; then
@@ -280,6 +368,14 @@ function main() {
 		;;
 	make)
 		make
+		return "$?"
+		;;
+	chroot)
+		initialise_chroot "$ROOT"
+		return "$?"
+		;;
+	unchroot)
+		finalise_chroot "$ROOT"
 		return "$?"
 		;;
 	*)
