@@ -66,12 +66,12 @@ function confirm() {
 	local last
 	args=("$@")
 	last="$(("${#args[@]}" - 1))"
-	args["$last"]="${args["$last"]} [Y/n]"
+	args["$last"]="${args["$last"]} [y/N]"
 
 	print "${args[@]}"
 	read -n 1 -r
 	printf "\n"
-	if [[ "$REPLY" =~ ^[Yy]?$ ]]; then return 0; fi
+	if [[ "$REPLY" =~ ^[Yy]$ ]]; then return 0; fi
 	error "Aborted"
 }
 function create_symlink() {
@@ -297,7 +297,7 @@ function make() {
 	write "$ROOT/etc/locale.conf" "LANG=$INSTALL_LANG"
 	write "$ROOT/etc/vconsole.conf" "KEYMAP=$INSTALL_KEYMAP" "FONT=$INSTALL_FONT"
 	create_symlink /usr/share/zoneinfo/"$INSTALL_TZ" "$ROOT/etc/localtime"
-	write "$ROOT/etc/hostname" "$HOSTNAME"
+	write "$ROOT/etc/hostname" "$INSTALL_HOSTNAME"
 	write "$ROOT/etc/hosts" '127.0.0.1 localhost' '0::1 localhost'
 	write "$ROOT/etc/sudoers.d/wheel" "%wheel ALL=(ALL) ALL"
 	write "$ROOT/etc/gdm/custom.conf" '[daemon]' 'AutomaticLoginEnable=True' "AutomaticLogin=$INSTALL_USER" 'WaylandEnable=true'
@@ -326,8 +326,12 @@ function make() {
 
 	print "Creating ext4 filesystem image, this may take a while"
 	delete_file "$ROOTFS"
-	# creates a ext4 image of the root directory, excluding the boot directory
-	tar --directory "$ROOT" --verbose --anchored --exclude ./boot --one-file-system --create \
+	# creates a ext4 image of the root directory, excluding the boot, log, and cache directories
+	tar --directory "$ROOT" --anchored --verbose \
+		--exclude='./boot/*' --exclude='./var/cache/*' --exclude='./root/.cache/*' --exclude='./home/'"$INSTALL_USER"'/.cache/*' \
+		--exclude='./var/log/audit' --exclude='./var/log/httpd' --exclude='./var/log/clamav' --exclude='./var/log/old' \
+		--exclude='./var/log/pacman.log' --exclude='./var/log/dinit/*' \
+		--one-file-system --create \
 		--xattrs --acls --numeric-owner --preserve-permissions --xattrs --xattrs-include=* --acls --atime-preserve . 2>/tmp/tar.log |
 		mkfs.ext4 -d - -- "$ROOTFS" 10G
 	resize2fs -M -- "$ROOTFS" # shrink the filesystem to the minimum size
