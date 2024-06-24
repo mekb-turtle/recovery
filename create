@@ -9,7 +9,7 @@ function configure() {
 	INSTALL_KEYMAP=us
 	INSTALL_TZ=Australia/Melbourne
 	INSTALL_FONT=ter-v22n
-	INSTALL_HOSTNAME=linux
+	INSTALL_HOSTNAME=linux-recovery
 	INSTALL_USER=user
 	INSTALL_USER_PASSWORD=user
 	INSTALL_ROOT_PASSWORD=root
