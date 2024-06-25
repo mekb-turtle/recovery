@@ -1,3 +1,6 @@
+[org/gnome/desktop/a11y]
+always-show-universal-access-status=true
+
 [org/gnome/desktop/background]
 color-shading-type='solid'
 picture-options='zoom'
@@ -47,6 +50,9 @@ workspaces-only-on-primary=false
 
 [org/gnome/nautilus/preferences]
 migrated-gtk-settings=true
+
+[org/gnome/settings-daemon/plugins/power]
+power-button-action='interactive'
 
 [org/gnome/desktop/app-folders]
 folder-children=['2ac31183-2941-4959-a3e0-a13d61cb1875', '44591316-3b27-4716-80d5-17da4aea32eb', '7b72f80a-528d-4416-87c2-0c9a6ec286bb']
