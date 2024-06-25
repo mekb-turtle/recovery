@@ -46,12 +46,15 @@ function write() {
 	debug "Writing to $file"
 	printf "%s\n" "$@" >"$file"
 }
-function check_installed() {
+function check_command_installed() {
+	OUT=0
 	for i in "$@"; do
 		if ! command -v "$i" &>/dev/null; then
-			error "$i could not be found"
+			error "$i could not be found" || true
+			OUT=1
 		fi
 	done
+	return "$OUT"
 }
 function check_root() {
 	if [[ $EUID -ne 0 ]]; then
@@ -237,7 +240,12 @@ function register_service() {
 		create_symlink ../"$service" "$dir"/etc/dinit.d/boot.d/"$service"
 	done
 }
-check_installed mksquashfs chroot grub-install mkdir ln cp mv unlink basestrap pacman printf grub-mkrescue awk mkfs.ext4 tar mount umount resize2fs true false env lsof kill read
+function check_installed() {
+	check_command_installed mksquashfs chroot grub-install mkdir ln cp mv unlink basestrap pacman printf grub-mkrescue awk mkfs.ext4 tar mount umount resize2fs true false env lsof kill read
+}
+function pacman_install() {
+	pacman -S artools-base coreutils e2fsprogs gawk grub lsof pacman squashfs-tools tar util-linux
+}
 check_root
 
 configure
@@ -246,7 +254,8 @@ ISO="$(realpath -- "$ISO")"
 BOOT="$ROOT/boot"
 ROOTFS="$(realpath -- "$ROOTFS")"
 function clean() {
-	finalise_chroot "$ROOT"
+	check_installed || return "$?"
+	finalise_chroot "$ROOT" || return "$?"
 	delete_file "$ISO"
 	delete_file "$ROOTFS"
 	if [[ -d "$ROOT" ]]; then
@@ -254,6 +263,7 @@ function clean() {
 	fi
 }
 function make() {
+	check_installed || return "$?"
 	local -a PACKAGES
 
 	ensure_exists grub.cfg update-dracut
@@ -360,6 +370,7 @@ function main() {
 		print "make: Create the recovery ISO"
 		print "chroot: Mount the chroot"
 		print "unchroot: Unmount the chroot if already mounted"
+		print "install: Install required packages with pacman"
 		return 0
 	fi
 	if [[ "$#" != "1" ]]; then
@@ -368,19 +379,27 @@ function main() {
 	fi
 	case "$1" in
 	clean)
+		check_installed || return "$?"
 		clean
 		return "$?"
 		;;
 	make)
+		check_installed || return "$?"
 		make
 		return "$?"
 		;;
 	chroot)
+		check_installed || return "$?"
 		initialise_chroot "$ROOT"
 		return "$?"
 		;;
 	unchroot)
+		check_installed || return "$?"
 		finalise_chroot "$ROOT"
+		return "$?"
+		;;
+	install)
+		pacman_install
 		return "$?"
 		;;
 	*)
