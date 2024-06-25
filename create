@@ -276,7 +276,7 @@ function make() {
 
 	PACKAGES=(
 		base base-devel dinit-base dinit dinit-rc
-		dbus-dinit seatd-dinit qemu-guest-agent-dinit spice-vdagent-dinit networkmanager-dinit gdm-dinit bluez-dinit cups-dinit
+		dbus-dinit seatd-dinit qemu-guest-agent-dinit spice-vdagent-dinit networkmanager-dinit gdm-dinit bluez-dinit cups-dinit openssh-dinit ufw-dinit
 		nano neovim git curl wget sudo mandoc man-pages less ripgrep bat
 		linux linux-firmware intel-ucode amd-ucode efibootmgr grub dracut terminus-font squashfs-tools device-mapper xorg-xhost usbutils
 		gnome-session gnome-backgrounds gnome-calculator gnome-characters gnome-clocks gnome-color-manager gnome-terminal gnome-control-center gnome-font-viewer gnome-keyring gnome-menus gnome-settings-daemon gnome-shell gnome-shell-extensions gnome-system-monitor gnome-text-editor gnome-user-docs gnome-user-share gnome-tweaks
@@ -285,7 +285,7 @@ function make() {
 		gparted dosfstools jfsutils f2fs-tools btrfs-progs exfatprogs ntfs-3g reiserfsprogs udftools xfsprogs nilfs-utils polkit gpart mtools
 		testdisk extundelete smartmontools r-linux foremost btop rsync rclone rkhunter clamav clamtk chntpw gnome-disk-utility
 		ttf-ubuntu-font-family gnu-free-fonts ttf-fira-code ttf-fira-mono ttf-fira-sans ttf-roboto ttf-roboto-mono
-		artools-base
+		artools-base gufw
 	)
 	create_dir "$ROOT"
 	print "Installing packages"
@@ -309,7 +309,7 @@ function make() {
 	chr "$ROOT" locale-gen
 	chr "$ROOT" passwd -d root
 	chr "$ROOT" passwd -d "$INSTALL_USER"
-	register_service "$ROOT" NetworkManager bluetoothd seatd dbus gdm qemu-ga spice-vdagentd cupsd
+	register_service "$ROOT" NetworkManager bluetoothd seatd dbus gdm qemu-ga spice-vdagentd cupsd ufw
 	create_symlink nvim "$ROOT"/usr/bin/vi
 	create_symlink nvim "$ROOT"/usr/bin/vim
 	create_dir "$ROOT/home/$INSTALL_USER/.config" "$ROOT/home/$INSTALL_USER/.config/dconf"
