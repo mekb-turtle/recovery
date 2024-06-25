@@ -296,6 +296,7 @@ function make() {
 		testdisk extundelete smartmontools r-linux foremost btop rsync rclone rkhunter clamav clamtk chntpw gnome-disk-utility
 		ttf-ubuntu-font-family gnu-free-fonts ttf-fira-code ttf-fira-mono ttf-fira-sans ttf-roboto ttf-roboto-mono
 		artools-base gufw
+		pv
 	)
 	create_dir "$ROOT"
 	print "Installing packages"
