@@ -305,7 +305,7 @@ function make() {
 	copy_file inputrc "$ROOT/etc/inputrc"
 	# shellcheck disable=SC2016
 	chr "$ROOT" bash -c '(id -u -- "$1" || useradd --base-dir /home --create-home -- "$1")' bash "$INSTALL_USER"
-	chr "$ROOT" usermod --append --groups wheel --shell /bin/bash -- "$INSTALL_USER"
+	chr "$ROOT" usermod --append --groups wheel,lp --shell /bin/bash -- "$INSTALL_USER"
 	chr "$ROOT" locale-gen
 	chr "$ROOT" passwd -d root
 	chr "$ROOT" passwd -d "$INSTALL_USER"
