@@ -63,7 +63,7 @@ name='System'
 translate=false
 
 [org/gnome/desktop/app-folders/folders/44591316-3b27-4716-80d5-17da4aea32eb]
-apps=['clamtk.desktop', 'rtt-rlinux.desktop', 'org.gnome.DiskUtility.desktop', 'org.gnome.baobab.desktop']
+apps=['clamtk.desktop', 'rtt-rlinux.desktop', 'org.gnome.DiskUtility.desktop', 'org.gnome.baobab.desktop', 'grsync.desktop']
 name='Utilities'
 translate=false
 

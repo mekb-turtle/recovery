@@ -186,7 +186,7 @@ function install_packages() {
 		return 0
 	fi
 	debug "Installing ${#packages[@]} packages..."
-	basestrap -c -- "$root" - <<<"${!packages[*]}"
+	basestrap -cK -- "$root" - <<<"${!packages[*]}"
 }
 function finalise_chroot() {
 	[[ -z "$1" ]] && return 1
@@ -286,14 +286,19 @@ function make() {
 
 	PACKAGES=(
 		base base-devel dinit-base dinit dinit-rc
-		dbus-dinit seatd-dinit qemu-guest-agent-dinit spice-vdagent-dinit networkmanager-dinit gdm-dinit bluez-dinit cups-dinit openssh-dinit ufw-dinit
+		dbus-dinit seatd-dinit qemu-guest-agent-dinit spice-vdagent-dinit networkmanager-dinit gdm-dinit bluez-dinit cups-dinit openssh-dinit ufw-dinit cronie-dinit
 		nano neovim git curl wget sudo mandoc man-pages less ripgrep bat
 		linux linux-firmware intel-ucode amd-ucode efibootmgr grub dracut terminus-font squashfs-tools device-mapper xorg-xhost usbutils
 		gnome-session gnome-backgrounds gnome-calculator gnome-characters gnome-clocks gnome-color-manager gnome-terminal gnome-control-center gnome-font-viewer gnome-keyring gnome-menus gnome-settings-daemon gnome-shell gnome-shell-extensions gnome-system-monitor gnome-text-editor gnome-user-docs gnome-user-share gnome-tweaks
 		gvfs loupe nautilus simple-scan snapshot sushi evince
 		xdg-desktop-portal-gnome xdg-user-dirs-gtk firefox baobab
 		gparted dosfstools jfsutils f2fs-tools btrfs-progs exfatprogs ntfs-3g reiserfsprogs udftools xfsprogs nilfs-utils polkit gpart mtools
-		testdisk extundelete smartmontools r-linux foremost btop rsync rclone rkhunter clamav clamtk chntpw gnome-disk-utility
+		lvm2 mdadm cryptsetup dmraid
+		clonezilla grsync rsync
+		memtest86+ dmidecode stress stress-ng sysbench
+		fzf jq psmisc zip unzip unrar p7zip lzop zstd lz4 xz bzip2 gzip tar
+		iputils bind nmap net-tools traceroute whois tcpdump iptraf-ng
+		testdisk ddrescue lsof extundelete smartmontools r-linux foremost btop rsync rclone rkhunter clamav clamtk chntpw gnome-disk-utility
 		ttf-ubuntu-font-family gnu-free-fonts ttf-fira-code ttf-fira-mono ttf-fira-sans ttf-roboto ttf-roboto-mono
 		artools-base gufw
 		pv
@@ -320,7 +325,7 @@ function make() {
 	chr "$ROOT" locale-gen
 	chr "$ROOT" passwd -d root
 	chr "$ROOT" passwd -d "$INSTALL_USER"
-	register_service "$ROOT" NetworkManager bluetoothd seatd dbus gdm qemu-ga spice-vdagentd cupsd ufw
+	register_service "$ROOT" NetworkManager bluetoothd seatd dbus gdm qemu-ga spice-vdagentd cupsd ufw cronie
 	create_symlink nvim "$ROOT"/usr/bin/vi
 	create_symlink nvim "$ROOT"/usr/bin/vim
 	create_dir "$ROOT/home/$INSTALL_USER/.config" "$ROOT/home/$INSTALL_USER/.config/dconf"
