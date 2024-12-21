@@ -301,6 +301,7 @@ function make() {
 		testdisk ddrescue lsof extundelete smartmontools r-linux foremost btop rsync rclone rkhunter clamav clamtk chntpw gnome-disk-utility
 		ttf-ubuntu-font-family gnu-free-fonts ttf-fira-code ttf-fira-mono ttf-fira-sans ttf-roboto ttf-roboto-mono
 		artools-base gufw
+		arch-wiki-docs arch-wiki-lite
 		pv
 	)
 	create_dir "$ROOT"
